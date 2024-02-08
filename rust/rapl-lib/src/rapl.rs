@@ -1,9 +1,13 @@
 use csv::{Writer, WriterBuilder};
-use once_cell::sync::OnceCell;
+use dashmap::DashMap;
+use once_cell::sync::{Lazy, OnceCell};
 use serde::Serialize;
 use std::{
     fs::{File, OpenOptions},
-    sync::Once,
+    io::Write,
+    net::TcpListener,
+    sync::{Mutex, Once},
+    thread::JoinHandle,
     time::{SystemTime, UNIX_EPOCH},
 };
 use thiserror::Error;
@@ -39,11 +43,30 @@ static RAPL_INIT: Once = Once::new();
 static RAPL_POWER_UNITS: OnceCell<u64> = OnceCell::new();
 static mut CSV_WRITER: Option<Writer<File>> = None;
 
+#[derive(Debug, Serialize)]
+struct OutputData {
+    timestamp_start: u128,
+    timestamp_end: u128,
+    pp0_start: u64,
+    pp0_end: u64,
+    pp1_start: u64,
+    pp1_end: u64,
+    pkg_start: u64,
+    pkg_end: u64,
+    dram_start: u64,
+    dram_end: u64,
+}
+
+static SAMPLING_THREAD: Mutex<Option<JoinHandle<()>>> = Mutex::new(None);
+static GLOBAL_DASHMAP: Lazy<DashMap<String, String>> = Lazy::new(|| DashMap::new());
+
 pub fn start_rapl() {
     // Run the OS specific start_rapl_impl function
     start_rapl_impl();
 
     RAPL_INIT.call_once(|| {
+        //*Testy = Some(DashMap::new());
+
         // Import the MSR RAPL power unit constants per CPU type
         #[cfg(amd)]
         use crate::rapl::amd::MSR_RAPL_POWER_UNIT;
@@ -61,6 +84,111 @@ pub fn start_rapl() {
     // Safety: RAPL_START is only accessed in this function and only from a single thread
     let rapl_registers = read_rapl_registers();
     unsafe { RAPL_START = (timestamp_start, rapl_registers) };
+}
+
+pub fn start_rapl_iter() {
+    // Run the OS specific start_rapl_impl function
+    start_rapl_impl();
+
+    GLOBAL_DASHMAP.insert("awer".to_string(), "awer".to_string());
+
+    // Start TCP server
+    std::thread::spawn(|| {
+        let listener = TcpListener::bind("127.0.0.1:80").unwrap();
+
+        for stream in listener.incoming() {
+            let mut stream = stream.unwrap();
+            //stream.set_nodelay(true).unwrap();
+            //stream.set_nonblocking(true).unwrap();
+
+            println!("Connection established!");
+
+            std::thread::spawn(move || {
+                loop {
+                    let struct1 = OutputData {
+                        timestamp_start: 1,
+                        timestamp_end: 2,
+                        pp0_start: 3,
+                        pp0_end: 4,
+                        pp1_start: 5,
+                        pp1_end: 6,
+                        pkg_start: 7,
+                        pkg_end: 8,
+                        dram_start: 9,
+                        dram_end: 10,
+                    };
+
+                    let x = bincode::serialize(&struct1).unwrap();
+                    stream.write_all(&x).unwrap();
+                    stream.flush().unwrap();
+                    println!("Sent struct1!");
+
+                    stream.write_all(&x).unwrap();
+                    stream.flush().unwrap();
+                    println!("Sent struct2!");
+
+                    // Sleep for 10 milliseconds
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                }
+
+                /*let struct2 = OutputData {
+                    timestamp_start: 69,
+                    timestamp_end: 2,
+                    pp0_start: 3,
+                    pp0_end: 4,
+                    pp1_start: 5,
+                    pp1_end: 6,
+                    pkg_start: 7,
+                    pkg_end: 8,
+                    dram_start: 9,
+                    dram_end: 10,
+                };
+
+                let y = bincode::serialize(&struct2).unwrap();
+                stream.write(&y).unwrap();
+                stream.flush().unwrap();
+                println!("Sent struct2!");*/
+
+                //loop {
+                // Sleep for 10 milliseconds
+                //std::thread::sleep(std::time::Duration::from_millis(2000));
+                //}*/
+            });
+        }
+    });
+
+    println!("Started TCP server!");
+
+    RAPL_INIT.call_once(|| {
+        // Import the MSR RAPL power unit constants per CPU type
+        #[cfg(amd)]
+        use crate::rapl::amd::MSR_RAPL_POWER_UNIT;
+        #[cfg(intel)]
+        use crate::rapl::intel::MSR_RAPL_POWER_UNIT;
+
+        // Read power unit and store it in the power units global variable
+        let pwr_unit = read_msr(MSR_RAPL_POWER_UNIT).expect("failed to read RAPL power unit");
+        RAPL_POWER_UNITS.get_or_init(|| pwr_unit);
+    });
+
+    // Spawn a new thread to start RAPL
+    let join = std::thread::spawn(|| {
+        loop {
+            //println!("Reading RAPL registers...");
+
+            // Get the current time in milliseconds since the UNIX epoch
+            let timestamp_start = get_timestamp_millis();
+
+            // Safety: RAPL_START is only accessed in this function and only from a single thread
+            let rapl_registers = read_rapl_registers();
+            unsafe { RAPL_START = (timestamp_start, rapl_registers) };
+
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        }
+    });
+
+    // Store the join handle in a static variable
+    *SAMPLING_THREAD.lock().unwrap() = Some(join);
 }
 
 #[cfg(intel)]

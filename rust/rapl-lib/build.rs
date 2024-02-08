@@ -1,4 +1,4 @@
-use sysinfo::{CpuExt, System, SystemExt};
+use sysinfo::System;
 
 fn main() {
     let sys = System::new_all();
