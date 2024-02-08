@@ -2,20 +2,19 @@ use crate::rapl;
 use std::ffi::{c_char, CStr};
 
 #[no_mangle]
-pub extern "C" fn start_rapl() {
+pub extern "C" fn start_rapl(id: *const c_char) {
+    let id_cstr = unsafe { CStr::from_ptr(id) };
+    let id_string = String::from_utf8_lossy(id_cstr.to_bytes()).to_string();
+    println!("start_rapl id: {}", id_string);
     rapl::start_rapl();
 }
 
 #[no_mangle]
-pub extern "C" fn stop_rapl() {
-    rapl::stop_rapl();
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn rapl_string_test(id: *const c_char) {
+pub extern "C" fn stop_rapl(id: *const c_char) {
     let id_cstr = unsafe { CStr::from_ptr(id) };
     let id_string = String::from_utf8_lossy(id_cstr.to_bytes()).to_string();
-    println!("Rust: {}", id_string);
+    println!("stop_rapl id: {}", id_string);
+    rapl::stop_rapl();
 }
 
 #[no_mangle]

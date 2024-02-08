@@ -1,5 +1,5 @@
 use anyhow::Result;
-use rapl_lib::ffi::{rapl_string_test, start_rapl_iter};
+use rapl_lib::ffi::start_rapl_iter;
 use serde::Deserialize;
 use std::{ffi::CString, io::Read, net::TcpStream};
 
@@ -21,7 +21,7 @@ struct OutputData {
 
 fn main() -> Result<()> {
     let func_cstring = CString::new("My.CSharp.Function").unwrap();
-    unsafe { rapl_string_test(func_cstring.as_ptr()) };
+    //unsafe { rapl_string_test(func_cstring.as_ptr()) };
 
     start_rapl_iter();
 
