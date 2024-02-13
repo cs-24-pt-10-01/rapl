@@ -60,9 +60,31 @@ struct OutputData {
 static SAMPLING_THREAD: Mutex<Option<JoinHandle<()>>> = Mutex::new(None);
 static GLOBAL_DASHMAP: Lazy<DashMap<String, String>> = Lazy::new(|| DashMap::new());
 
-pub fn start_rapl() {
+#[cfg(intel)]
+#[derive(Debug, Serialize)]
+struct RaplRegisters {
+    pp0: u64,
+    pp1: u64,
+    pkg: u64,
+    dram: u64,
+}
+
+#[cfg(amd)]
+#[derive(Debug, Serialize)]
+struct RaplRegisters {
+    core: u64,
+    pkg: u64,
+}
+
+struct Stuff {}
+
+pub fn start_rapl(id: String) {
     // Run the OS specific start_rapl_impl function
     start_rapl_impl();
+
+    // print the id of the thread
+    let qwe = std::thread::current().id();
+    println!("start_rapl id: {}", 123);
 
     RAPL_INIT.call_once(|| {
         //*Testy = Some(DashMap::new());
@@ -192,7 +214,7 @@ pub fn start_rapl_iter() {
 }
 
 #[cfg(intel)]
-pub fn stop_rapl() {
+pub fn stop_rapl(id: String) {
     // Read the RAPL end values
     let (pp0_end, pp1_end, pkg_end, dram_end) = read_rapl_registers();
 
@@ -205,6 +227,7 @@ pub fn stop_rapl() {
     // Write the RAPL start and end values to the CSV
     write_to_csv(
         (
+            id,
             timestamp_start,
             timestamp_end,
             pp0_start,
@@ -217,6 +240,7 @@ pub fn stop_rapl() {
             dram_end,
         ),
         [
+            "Id",
             "TimeStart",
             "TimeEnd",
             "PP0Start",
@@ -233,7 +257,7 @@ pub fn stop_rapl() {
 }
 
 #[cfg(amd)]
-pub fn stop_rapl() {
+pub fn stop_rapl(id: String) {
     // Read the RAPL end values
     let (core_end, pkg_end) = read_rapl_registers();
 
@@ -241,11 +265,12 @@ pub fn stop_rapl() {
     let timestamp_end = get_timestamp_millis();
 
     // Load in the RAPL start value
-    let (timestamp_start, (core_start, pkg_start)) = unsafe { RAPL_START };
+    let (timestamp_start, (core_start, pkg_start)) = unsafe { &RAPL_START };
 
     // Write the RAPL start and end values to the CSV
     write_to_csv(
         (
+            id,
             timestamp_start,
             timestamp_end,
             core_start,
@@ -254,6 +279,7 @@ pub fn stop_rapl() {
             pkg_end,
         ),
         [
+            "Id",
             "TimeStart",
             "TimeEnd",
             "CoreStart",
@@ -328,6 +354,11 @@ pub fn get_cpu_type() -> &'static str {
 #[cfg(amd)]
 fn read_rapl_registers() -> (u64, u64) {
     use self::amd::{AMD_MSR_CORE_ENERGY, MSR_RAPL_PKG_ENERGY_STAT};
+
+    /*let rapl_registers = RaplRegisters {
+        core: read_msr(AMD_MSR_CORE_ENERGY).expect("failed to read CORE_ENERGY"),
+        pkg: read_msr(MSR_RAPL_PKG_ENERGY_STAT).expect("failed to read RAPL_PKG_ENERGY_STAT"),
+    };*/
 
     let core = read_msr(AMD_MSR_CORE_ENERGY).expect("failed to read CORE_ENERGY");
     let pkg = read_msr(MSR_RAPL_PKG_ENERGY_STAT).expect("failed to read RAPL_PKG_ENERGY_STAT");
