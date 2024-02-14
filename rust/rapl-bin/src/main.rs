@@ -1,5 +1,4 @@
 use anyhow::Result;
-use rapl_lib::ffi::start_rapl_iter;
 use serde::Deserialize;
 use std::{ffi::CString, io::Read, net::TcpStream};
 
@@ -23,7 +22,7 @@ fn main() -> Result<()> {
     let func_cstring = CString::new("My.CSharp.Function").unwrap();
     //unsafe { rapl_string_test(func_cstring.as_ptr()) };
 
-    start_rapl_iter();
+    //start_rapl_iter();
 
     // Connect to the RAPL library
     // Start tcp client and then connect

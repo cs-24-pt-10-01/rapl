@@ -13,6 +13,8 @@ csv = "1"
 serde = { version = "1", features = ["derive"] }
 dashmap = "5"
 bincode = "1"
+crossbeam = "0.8"
+thread-id = "4"
 
 [dependencies.windows]
 version = "0.52"

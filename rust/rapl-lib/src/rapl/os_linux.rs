@@ -6,7 +6,7 @@ use std::{fs::File, os::unix::prelude::FileExt};
 
 static CPU0_MSR_FD: OnceCell<File> = OnceCell::new();
 
-pub fn start_rapl_impl() {}
+pub fn rapl_log_init() {}
 
 // https://github.com/greensoftwarelab/Energy-Languages/blob/master/RAPL/rapl.c#L14
 fn open_msr(core: u32) -> Result<File, RaplError> {
