@@ -35,7 +35,7 @@ const IOCTL_OLS_READ_MSR: u32 = 0x9C402084;
 static RAPL_INIT: Once = Once::new();
 static RAPL_DRIVER: OnceCell<HANDLE> = OnceCell::new();
 
-pub fn rapl_log_init() {
+pub fn start_rapl_init() {
     // Initialize RAPL driver on first call
     RAPL_INIT.call_once(|| {
         // Check if running as admin due to the driver requirement

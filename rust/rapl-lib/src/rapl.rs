@@ -1,5 +1,5 @@
 use crossbeam::queue::SegQueue;
-
+use dashmap::DashMap;
 use once_cell::sync::OnceCell;
 use serde::Serialize;
 use std::{
@@ -18,9 +18,9 @@ pub mod os_windows;
 
 // Import the OS specific functions
 #[cfg(target_os = "linux")]
-use self::os_linux::{rapl_log_init, read_msr};
+use self::os_linux::{read_msr, start_rapl_init};
 #[cfg(target_os = "windows")]
-use self::os_windows::{rapl_log_init, read_msr};
+use self::os_windows::{read_msr, start_rapl_init};
 
 #[derive(Error, Debug)]
 pub enum RaplError {
@@ -56,15 +56,25 @@ struct RaplLog {
     rapl_registers: RaplRegisters,
 }
 
+#[derive(Debug, Serialize)]
+struct RaplPacket {
+    id: String,
+    thread_id: usize,
+    cpu_type: CPUType,
+    timestamp: u128,
+    rapl_registers: RaplRegisters,
+}
+
 static RAPL_INIT: Once = Once::new();
 // TOOD: Bitfield here, use the "bitfield-struct" crate or so. Just check it out at least. Utilize OS specific ver for it
 static RAPL_POWER_UNITS: OnceCell<u64> = OnceCell::new();
-static RAPL_LOGS: OnceCell<SegQueue<RaplLog>> = OnceCell::new();
+static RAPL_LOGS_MAP: OnceCell<DashMap<String, RaplLog>> = OnceCell::new();
+static RAPL_LOGS_QUEUE: OnceCell<SegQueue<RaplLog>> = OnceCell::new();
 
-pub fn rapl_log(id: String) {
+pub fn start_rapl(id: String) {
     RAPL_INIT.call_once(|| {
         // Run the OS specific rapl_log_init function, to enable reading MSR registers
-        rapl_log_init();
+        start_rapl_init();
 
         // Import the MSR RAPL power unit constants per CPU type
         #[cfg(amd)]
@@ -86,11 +96,11 @@ pub fn rapl_log(id: String) {
     let rapl_registers = read_rapl_registers();
 
     // Get the RAPL logs queue
-    let rapl_logs_queue = RAPL_LOGS.get_or_init(|| SegQueue::new());
+    let rapl_logs_map = RAPL_LOGS_MAP.get_or_init(|| DashMap::new());
 
     // Create a new RAPL log
     let rapl_log = RaplLog {
-        id,
+        id: id.clone(),
         timestamp: timestamp_start,
         rapl_registers: RaplRegisters {
             core: rapl_registers.0,
@@ -101,7 +111,7 @@ pub fn rapl_log(id: String) {
     };
 
     // Push the RAPL log to the queue
-    rapl_logs_queue.push(rapl_log);
+    rapl_logs_map.insert(id, rapl_log);
 }
 
 fn start_rapl_server() {
@@ -121,7 +131,7 @@ fn start_rapl_server() {
                     // TODO: Send the RAPL logs to all connected clients
 
                     // Get the RAPL logs queue
-                    let rapl_logs_queue = RAPL_LOGS.get().unwrap();
+                    let rapl_logs_queue = RAPL_LOGS_QUEUE.get().unwrap();
 
                     // Create a vector to store the RAPL logs, in order to send it as one big message
                     let mut rapl_logs_vec = Vec::new();
@@ -140,6 +150,32 @@ fn start_rapl_server() {
             });
         }
     });
+}
+
+pub fn stop_rapl(id: String) {
+    // Get the current time in milliseconds since the UNIX epoch
+    let timestamp_start = get_timestamp_millis();
+
+    // Read the RAPL registers
+    let rapl_registers = read_rapl_registers();
+
+    // Get the RAPL logs queue
+    let rapl_logs_queue = RAPL_LOGS_QUEUE.get_or_init(|| SegQueue::new());
+
+    // Create a new RAPL log
+    let rapl_log = RaplLog {
+        id,
+        timestamp: timestamp_start,
+        rapl_registers: RaplRegisters {
+            core: rapl_registers.0,
+            pkg: rapl_registers.1,
+        },
+        thread_id: thread_id::get(),
+        cpu_type: get_cpu_type(),
+    };
+
+    // Push the RAPL log to the queue
+    rapl_logs_queue.push(rapl_log);
 }
 
 fn get_timestamp_millis() -> u128 {
