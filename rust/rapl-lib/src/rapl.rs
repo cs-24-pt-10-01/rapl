@@ -182,7 +182,11 @@ fn create_csv_writer_thread() {
 
         let end = start.elapsed().as_millis();
 
-        println!("Time elapsed for write to csv: {}ms", end);
+        println!(
+            "Write to csv: {}ms, queue length: {}",
+            end,
+            WRITE_QUEUE.len()
+        );
 
         // Sleep for 1 second
         std::thread::sleep(std::time::Duration::from_secs(1));
