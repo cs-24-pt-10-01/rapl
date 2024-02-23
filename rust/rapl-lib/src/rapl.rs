@@ -222,45 +222,6 @@ fn get_timestamp_millis() -> u128 {
     duration_since_epoch.as_millis()
 }
 
-fn write_to_csv<T, C, U>(data: T, columns: C) -> Result<(), std::io::Error>
-where
-    T: Serialize,
-    C: IntoIterator<Item = U>,
-    U: AsRef<[u8]>,
-{
-    let wtr = match unsafe { CSV_WRITER.as_mut() } {
-        Some(wtr) => wtr,
-        None => {
-            // Open the file to write to CSV. First argument is CPU type, second is RAPL power units
-            let file = OpenOptions::new().append(true).create(true).open(format!(
-                "{}_{}.csv",
-                get_cpu_type(),
-                RAPL_POWER_UNITS
-                    .get()
-                    .expect("failed to get RAPL power units")
-            ))?;
-
-            // Create the CSV writer
-            let mut wtr = WriterBuilder::new().from_writer(file);
-
-            // Write the column names
-            wtr.write_record(columns)?;
-
-            // Store the CSV writer in a static variable
-            unsafe { CSV_WRITER = Some(wtr) };
-
-            // Return a mutable reference to the CSV writer
-            unsafe { CSV_WRITER.as_mut().expect("failed to get CSV writer") }
-        }
-    };
-
-    // Write the data to the CSV and flush it
-    wtr.serialize(data)?;
-    wtr.flush()?;
-
-    Ok(())
-}
-
 // Get the CPU type based on the compile time configuration
 pub fn get_cpu_type() -> &'static str {
     #[cfg(intel)]
