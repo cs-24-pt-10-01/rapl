@@ -92,8 +92,8 @@ pub fn start_rapl(id: String) {
         use crate::rapl::intel::MSR_RAPL_POWER_UNIT;
 
         // Read power unit and store it in the power units global variable
-        let pwr_unit = read_msr(MSR_RAPL_POWER_UNIT).expect("failed to read RAPL power unit");
-        RAPL_POWER_UNITS.get_or_init(|| pwr_unit);
+        let power_unit = read_msr(MSR_RAPL_POWER_UNIT).expect("failed to read RAPL power unit");
+        RAPL_POWER_UNITS.get_or_init(|| power_unit);
 
         // Start background thread to write to CSV
         std::thread::spawn(|| {
