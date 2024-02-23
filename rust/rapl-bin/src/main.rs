@@ -3,8 +3,6 @@ use rapl_lib::ffi::{start_rapl, stop_rapl};
 use std::{ffi::CString, thread, time::Duration};
 
 fn main() -> Result<()> {
-    // Call start and stop rapl 500 times
-
     // Get current time in milliseconds
     let start = std::time::Instant::now();
 
