@@ -1,3 +1,4 @@
+use crossbeam::queue::SegQueue;
 use csv::{Writer, WriterBuilder};
 use dashmap::DashMap;
 use once_cell::sync::{Lazy, OnceCell};
@@ -30,9 +31,6 @@ pub enum RaplError {
     Windows(#[from] windows::core::Error),
 }
 
-#[cfg(amd)]
-static mut RAPL_START: (u128, (u64, u64)) = (0, (0, 0));
-
 #[cfg(intel)]
 static mut RAPL_START: (u128, (u64, u64, u64, u64)) = (0, (0, 0, 0, 0));
 
@@ -46,6 +44,9 @@ static GLOBAL_DASHMAP: Lazy<DashMap<String, (u128, (u64, u64))>> = Lazy::new(|| 
 #[cfg(intel)]
 static GLOBAL_DASHMAP: Lazy<DashMap<String, (u128, (u64, u64, u64, u64))>> =
     Lazy::new(|| DashMap::new());
+
+#[cfg(amd)]
+static QUEUE: SegQueue<String> = SegQueue::new();
 
 pub fn start_rapl(id: String) {
     // Run the OS specific start_rapl_impl function
@@ -61,6 +62,11 @@ pub fn start_rapl(id: String) {
         // Read power unit and store it in the power units global variable
         let pwr_unit = read_msr(MSR_RAPL_POWER_UNIT).expect("failed to read RAPL power unit");
         RAPL_POWER_UNITS.get_or_init(|| pwr_unit);
+
+        // Start background thread to write to CSV
+        std::thread::spawn(|| {
+            println!("Test");
+        });
     });
 
     // Get the current time in milliseconds since the UNIX epoch
@@ -114,18 +120,53 @@ pub fn stop_rapl(id: String) {
 }
 
 #[cfg(amd)]
+fn csv_write_stuff() {
+    let file = OpenOptions::new()
+        .append(true)
+        .create(true)
+        .open(format!(
+            "{}_{}.csv",
+            get_cpu_type(),
+            RAPL_POWER_UNITS
+                .get()
+                .expect("failed to get RAPL power units")
+        ))
+        .unwrap();
+
+    // Create the CSV writer
+    let mut wtr = WriterBuilder::new().from_writer(file);
+
+    // Write the column names
+    wtr.write_record([
+        "TimeStart",
+        "TimeEnd",
+        "CoreStart",
+        "CoreEnd",
+        "PkgStart",
+        "PkgEnd",
+    ])
+    .unwrap();
+
+    loop {}
+}
+
+#[cfg(amd)]
 pub fn stop_rapl(id: String) {
+    let awer = GLOBAL_DASHMAP
+        .get(&id)
+        .expect("failed to get data from dashmap");
+
+    let mut awrawerar = Vec::new();
+    awrawerar.push(awer);
+
     // Read the RAPL end values
     let (core_end, pkg_end) = read_rapl_registers();
 
     // Get the current time in milliseconds since the UNIX epoch
     let timestamp_end = get_timestamp_millis();
 
-    // Load in the RAPL start value
-    let (timestamp_start, (core_start, pkg_start)) = unsafe { RAPL_START };
-
     // Write the RAPL start and end values to the CSV
-    write_to_csv(
+    /*write_to_csv(
         (
             timestamp_start,
             timestamp_end,
@@ -143,7 +184,7 @@ pub fn stop_rapl(id: String) {
             "PkgEnd",
         ],
     )
-    .expect("failed to write to CSV");
+    .expect("failed to write to CSV");*/
 }
 
 fn get_timestamp_millis() -> u128 {
