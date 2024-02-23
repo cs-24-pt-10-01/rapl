@@ -1,10 +1,8 @@
-use crossbeam::queue::SegQueue;
-use dashmap::DashMap;
+use csv::{Writer, WriterBuilder};
 use once_cell::sync::OnceCell;
 use serde::Serialize;
 use std::{
-    io::Write,
-    net::TcpListener,
+    fs::{File, OpenOptions},
     sync::Once,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -18,9 +16,9 @@ pub mod os_windows;
 
 // Import the OS specific functions
 #[cfg(target_os = "linux")]
-use self::os_linux::{read_msr, start_rapl_init};
+use self::os_linux::{read_msr, start_rapl_impl};
 #[cfg(target_os = "windows")]
-use self::os_windows::{read_msr, start_rapl_init};
+use self::os_windows::{read_msr, start_rapl_impl};
 
 #[derive(Error, Debug)]
 pub enum RaplError {
@@ -31,51 +29,21 @@ pub enum RaplError {
     Windows(#[from] windows::core::Error),
 }
 
-#[cfg(intel)]
-#[derive(Debug, Serialize)]
-struct RaplRegisters {
-    pp0: u64,
-    pp1: u64,
-    pkg: u64,
-    dram: u64,
-}
-
 #[cfg(amd)]
-#[derive(Debug, Serialize)]
-struct RaplRegisters {
-    core: u64,
-    pkg: u64,
-}
+static mut RAPL_START: (u128, (u64, u64)) = (0, (0, 0));
 
-#[derive(Debug, Serialize)]
-struct RaplLog {
-    id: String,
-    thread_id: usize,
-    cpu_type: CPUType,
-    timestamp: u128,
-    rapl_registers: RaplRegisters,
-}
-
-#[derive(Debug, Serialize)]
-struct RaplPacket {
-    id: String,
-    thread_id: usize,
-    cpu_type: CPUType,
-    timestamp: u128,
-    rapl_registers: RaplRegisters,
-}
+#[cfg(intel)]
+static mut RAPL_START: (u128, (u64, u64, u64, u64)) = (0, (0, 0, 0, 0));
 
 static RAPL_INIT: Once = Once::new();
-// TOOD: Bitfield here, use the "bitfield-struct" crate or so. Just check it out at least. Utilize OS specific ver for it
 static RAPL_POWER_UNITS: OnceCell<u64> = OnceCell::new();
-static RAPL_LOGS_MAP: OnceCell<DashMap<String, RaplLog>> = OnceCell::new();
-static RAPL_LOGS_QUEUE: OnceCell<SegQueue<RaplLog>> = OnceCell::new();
+static mut CSV_WRITER: Option<Writer<File>> = None;
 
-pub fn start_rapl(id: String) {
+pub fn start_rapl() {
+    // Run the OS specific start_rapl_impl function
+    start_rapl_impl();
+
     RAPL_INIT.call_once(|| {
-        // Run the OS specific rapl_log_init function, to enable reading MSR registers
-        start_rapl_init();
-
         // Import the MSR RAPL power unit constants per CPU type
         #[cfg(amd)]
         use crate::rapl::amd::MSR_RAPL_POWER_UNIT;
@@ -85,97 +53,88 @@ pub fn start_rapl(id: String) {
         // Read power unit and store it in the power units global variable
         let pwr_unit = read_msr(MSR_RAPL_POWER_UNIT).expect("failed to read RAPL power unit");
         RAPL_POWER_UNITS.get_or_init(|| pwr_unit);
-
-        start_rapl_server();
     });
 
     // Get the current time in milliseconds since the UNIX epoch
     let timestamp_start = get_timestamp_millis();
 
-    // Read the RAPL registers
+    // Safety: RAPL_START is only accessed in this function and only from a single thread
     let rapl_registers = read_rapl_registers();
-
-    // Get the RAPL logs queue
-    let rapl_logs_map = RAPL_LOGS_MAP.get_or_init(|| DashMap::new());
-
-    // Create a new RAPL log
-    let rapl_log = RaplLog {
-        id: id.clone(),
-        timestamp: timestamp_start,
-        rapl_registers: RaplRegisters {
-            core: rapl_registers.0,
-            pkg: rapl_registers.1,
-        },
-        thread_id: thread_id::get(),
-        cpu_type: get_cpu_type(),
-    };
-
-    // Push the RAPL log to the queue
-    rapl_logs_map.insert(id, rapl_log);
+    unsafe { RAPL_START = (timestamp_start, rapl_registers) };
 }
 
-fn start_rapl_server() {
-    // Start TCP server
-    std::thread::spawn(|| {
-        let listener = TcpListener::bind("127.0.0.1:80").unwrap();
+#[cfg(intel)]
+pub fn stop_rapl() {
+    // Read the RAPL end values
+    let (pp0_end, pp1_end, pkg_end, dram_end) = read_rapl_registers();
 
-        for stream in listener.incoming() {
-            let mut stream = stream.unwrap();
-            //stream.set_nodelay(true).unwrap();
-            //stream.set_nonblocking(true).unwrap();
-
-            println!("Connection established!");
-
-            std::thread::spawn(move || {
-                loop {
-                    // TODO: Send the RAPL logs to all connected clients
-
-                    // Get the RAPL logs queue
-                    let rapl_logs_queue = RAPL_LOGS_QUEUE.get().unwrap();
-
-                    // Create a vector to store the RAPL logs, in order to send it as one big message
-                    let mut rapl_logs_vec = Vec::new();
-                    while let Some(rapl_log) = rapl_logs_queue.pop() {
-                        rapl_logs_vec.push(rapl_log);
-                    }
-
-                    // Serialize the RAPL logs vector, then send it to the client
-                    let serialized_rapl_logs = bincode::serialize(&rapl_logs_vec).unwrap();
-                    stream.write_all(&serialized_rapl_logs).unwrap();
-                    stream.flush().unwrap();
-
-                    // Sleep for 500 milliseconds
-                    std::thread::sleep(std::time::Duration::from_millis(500));
-                }
-            });
-        }
-    });
-}
-
-pub fn stop_rapl(id: String) {
     // Get the current time in milliseconds since the UNIX epoch
-    let timestamp_start = get_timestamp_millis();
+    let timestamp_end = get_timestamp_millis();
 
-    // Read the RAPL registers
-    let rapl_registers = read_rapl_registers();
+    // Load in the RAPL start value
+    let (timestamp_start, (pp0_start, pp1_start, pkg_start, dram_start)) = unsafe { RAPL_START };
 
-    // Get the RAPL logs queue
-    let rapl_logs_queue = RAPL_LOGS_QUEUE.get_or_init(|| SegQueue::new());
+    // Write the RAPL start and end values to the CSV
+    write_to_csv(
+        (
+            timestamp_start,
+            timestamp_end,
+            pp0_start,
+            pp0_end,
+            pp1_start,
+            pp1_end,
+            pkg_start,
+            pkg_end,
+            dram_start,
+            dram_end,
+        ),
+        [
+            "TimeStart",
+            "TimeEnd",
+            "PP0Start",
+            "PP0End",
+            "PP1Start",
+            "PP1End",
+            "PkgStart",
+            "PkgEnd",
+            "DramStart",
+            "DramEnd",
+        ],
+    )
+    .expect("failed to write to CSV");
+}
 
-    // Create a new RAPL log
-    let rapl_log = RaplLog {
-        id,
-        timestamp: timestamp_start,
-        rapl_registers: RaplRegisters {
-            core: rapl_registers.0,
-            pkg: rapl_registers.1,
-        },
-        thread_id: thread_id::get(),
-        cpu_type: get_cpu_type(),
-    };
+#[cfg(amd)]
+pub fn stop_rapl() {
+    // Read the RAPL end values
+    let (core_end, pkg_end) = read_rapl_registers();
 
-    // Push the RAPL log to the queue
-    rapl_logs_queue.push(rapl_log);
+    // Get the current time in milliseconds since the UNIX epoch
+    let timestamp_end = get_timestamp_millis();
+
+    // Load in the RAPL start value
+    let (timestamp_start, (core_start, pkg_start)) = unsafe { RAPL_START };
+
+    // Write the RAPL start and end values to the CSV
+    write_to_csv(
+        (
+            timestamp_start,
+            timestamp_end,
+            core_start,
+            core_end,
+            pkg_start,
+            pkg_end,
+        ),
+        [
+            "TimeStart",
+            "TimeEnd",
+            "CoreStart",
+            "CoreEnd",
+            "PkgStart",
+            "PkgEnd",
+        ],
+    )
+    .expect("failed to write to CSV");
 }
 
 fn get_timestamp_millis() -> u128 {
@@ -186,34 +145,61 @@ fn get_timestamp_millis() -> u128 {
     duration_since_epoch.as_millis()
 }
 
-#[derive(Debug, Serialize)]
-#[allow(dead_code)]
-enum CPUType {
-    Intel,
-    AMD,
+fn write_to_csv<T, C, U>(data: T, columns: C) -> Result<(), std::io::Error>
+where
+    T: Serialize,
+    C: IntoIterator<Item = U>,
+    U: AsRef<[u8]>,
+{
+    let wtr = match unsafe { CSV_WRITER.as_mut() } {
+        Some(wtr) => wtr,
+        None => {
+            // Open the file to write to CSV. First argument is CPU type, second is RAPL power units
+            let file = OpenOptions::new().append(true).create(true).open(format!(
+                "{}_{}.csv",
+                get_cpu_type(),
+                RAPL_POWER_UNITS
+                    .get()
+                    .expect("failed to get RAPL power units")
+            ))?;
+
+            // Create the CSV writer
+            let mut wtr = WriterBuilder::new().from_writer(file);
+
+            // Write the column names
+            wtr.write_record(columns)?;
+
+            // Store the CSV writer in a static variable
+            unsafe { CSV_WRITER = Some(wtr) };
+
+            // Return a mutable reference to the CSV writer
+            unsafe { CSV_WRITER.as_mut().expect("failed to get CSV writer") }
+        }
+    };
+
+    // Write the data to the CSV and flush it
+    wtr.serialize(data)?;
+    wtr.flush()?;
+
+    Ok(())
 }
 
 // Get the CPU type based on the compile time configuration
-fn get_cpu_type() -> CPUType {
+pub fn get_cpu_type() -> &'static str {
     #[cfg(intel)]
     {
-        CPUType::Intel
+        "Intel"
     }
 
     #[cfg(amd)]
     {
-        CPUType::AMD
+        "AMD"
     }
 }
 
 #[cfg(amd)]
 fn read_rapl_registers() -> (u64, u64) {
     use self::amd::{AMD_MSR_CORE_ENERGY, MSR_RAPL_PKG_ENERGY_STAT};
-
-    /*let rapl_registers = RaplRegisters {
-        core: read_msr(AMD_MSR_CORE_ENERGY).expect("failed to read CORE_ENERGY"),
-        pkg: read_msr(MSR_RAPL_PKG_ENERGY_STAT).expect("failed to read RAPL_PKG_ENERGY_STAT"),
-    };*/
 
     let core = read_msr(AMD_MSR_CORE_ENERGY).expect("failed to read CORE_ENERGY");
     let pkg = read_msr(MSR_RAPL_PKG_ENERGY_STAT).expect("failed to read RAPL_PKG_ENERGY_STAT");
