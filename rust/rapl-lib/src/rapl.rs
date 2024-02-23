@@ -174,10 +174,15 @@ fn create_csv_writer_thread() {
     wtr.write_record(CSV_COLUMNS).unwrap();
 
     loop {
+        let start = std::time::Instant::now();
         while let Some(data) = WRITE_QUEUE.pop() {
             wtr.serialize(data).unwrap();
             wtr.flush().unwrap();
         }
+
+        let end = start.elapsed().as_millis();
+
+        println!("Time elapsed for write to csv: {}ms", end);
 
         // Sleep for 1 second
         std::thread::sleep(std::time::Duration::from_secs(1));
