@@ -172,6 +172,9 @@ fn csv_write_stuff(mut wtr: Writer<File>) {
             wtr.serialize(data).unwrap();
             wtr.flush().unwrap();
         }
+
+        // Sleep for 1 second
+        std::thread::sleep(std::time::Duration::from_secs(1));
     }
 }
 
