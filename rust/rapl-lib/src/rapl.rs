@@ -46,7 +46,35 @@ static GLOBAL_DASHMAP: Lazy<DashMap<String, (u128, (u64, u64, u64, u64))>> =
     Lazy::new(|| DashMap::new());
 
 #[cfg(amd)]
-static QUEUE: SegQueue<String> = SegQueue::new();
+static WRITE_QUEUE: SegQueue<((u128, (u64, u64)), (u64, u64), u128)> = SegQueue::new();
+
+#[cfg(intel)]
+static WRITE_QUEUE: SegQueue<((u128, (u64, u64, u64, u64)), (u64, u64, u64, u64), u128)> =
+    SegQueue::new();
+
+#[cfg(amd)]
+static CSV_COLUMNS: [&str; 6] = [
+    "TimeStart",
+    "TimeEnd",
+    "CoreStart",
+    "CoreEnd",
+    "PkgStart",
+    "PkgEnd",
+];
+
+#[cfg(intel)]
+static CSV_COLUMNS: [&str; 11] = [
+    "TimeStart",
+    "TimeEnd",
+    "PP0Start",
+    "PP0End",
+    "PP1Start",
+    "PP1End",
+    "PkgStart",
+    "PkgEnd",
+    "DramStart",
+    "DramEnd",
+];
 
 pub fn start_rapl(id: String) {
     // Run the OS specific start_rapl_impl function
@@ -65,7 +93,25 @@ pub fn start_rapl(id: String) {
 
         // Start background thread to write to CSV
         std::thread::spawn(|| {
-            println!("Test");
+            let file = OpenOptions::new()
+                .append(true)
+                .create(true)
+                .open(format!(
+                    "{}_{}.csv",
+                    get_cpu_type(),
+                    RAPL_POWER_UNITS
+                        .get()
+                        .expect("failed to get RAPL power units")
+                ))
+                .unwrap();
+
+            // Create the CSV writer
+            let mut wtr = WriterBuilder::new().from_writer(file);
+
+            // Write the column names
+            wtr.write_record(CSV_COLUMNS).unwrap();
+
+            csv_write_stuff(wtr);
         });
     });
 
@@ -120,44 +166,20 @@ pub fn stop_rapl(id: String) {
 }
 
 #[cfg(amd)]
-fn csv_write_stuff() {
-    let file = OpenOptions::new()
-        .append(true)
-        .create(true)
-        .open(format!(
-            "{}_{}.csv",
-            get_cpu_type(),
-            RAPL_POWER_UNITS
-                .get()
-                .expect("failed to get RAPL power units")
-        ))
-        .unwrap();
-
-    // Create the CSV writer
-    let mut wtr = WriterBuilder::new().from_writer(file);
-
-    // Write the column names
-    wtr.write_record([
-        "TimeStart",
-        "TimeEnd",
-        "CoreStart",
-        "CoreEnd",
-        "PkgStart",
-        "PkgEnd",
-    ])
-    .unwrap();
-
-    loop {}
+fn csv_write_stuff(mut wtr: Writer<File>) {
+    loop {
+        while let Some(data) = WRITE_QUEUE.pop() {
+            wtr.serialize(data).unwrap();
+            wtr.flush().unwrap();
+        }
+    }
 }
 
 #[cfg(amd)]
 pub fn stop_rapl(id: String) {
-    let awer = GLOBAL_DASHMAP
+    let start_values = GLOBAL_DASHMAP
         .get(&id)
         .expect("failed to get data from dashmap");
-
-    let mut awrawerar = Vec::new();
-    awrawerar.push(awer);
 
     // Read the RAPL end values
     let (core_end, pkg_end) = read_rapl_registers();
@@ -165,26 +187,12 @@ pub fn stop_rapl(id: String) {
     // Get the current time in milliseconds since the UNIX epoch
     let timestamp_end = get_timestamp_millis();
 
-    // Write the RAPL start and end values to the CSV
-    /*write_to_csv(
-        (
-            timestamp_start,
-            timestamp_end,
-            core_start,
-            core_end,
-            pkg_start,
-            pkg_end,
-        ),
-        [
-            "TimeStart",
-            "TimeEnd",
-            "CoreStart",
-            "CoreEnd",
-            "PkgStart",
-            "PkgEnd",
-        ],
-    )
-    .expect("failed to write to CSV");*/
+    // Pass the start and end values to the write queue
+    WRITE_QUEUE.push((
+        (start_values.0, (start_values.1 .0, start_values.1 .1)),
+        (core_end, pkg_end),
+        timestamp_end,
+    ));
 }
 
 fn get_timestamp_millis() -> u128 {
