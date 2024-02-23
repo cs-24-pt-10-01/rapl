@@ -1,5 +1,6 @@
 use csv::{Writer, WriterBuilder};
-use once_cell::sync::OnceCell;
+use dashmap::DashMap;
+use once_cell::sync::{Lazy, OnceCell};
 use serde::Serialize;
 use std::{
     fs::{File, OpenOptions},
@@ -39,6 +40,13 @@ static RAPL_INIT: Once = Once::new();
 static RAPL_POWER_UNITS: OnceCell<u64> = OnceCell::new();
 static mut CSV_WRITER: Option<Writer<File>> = None;
 
+#[cfg(amd)]
+static GLOBAL_DASHMAP: Lazy<DashMap<String, (u128, (u64, u64))>> = Lazy::new(|| DashMap::new());
+
+#[cfg(intel)]
+static GLOBAL_DASHMAP: Lazy<DashMap<String, (u128, (u64, u64, u64, u64))>> =
+    Lazy::new(|| DashMap::new());
+
 pub fn start_rapl(id: String) {
     // Run the OS specific start_rapl_impl function
     start_rapl_impl();
@@ -60,7 +68,8 @@ pub fn start_rapl(id: String) {
 
     // Safety: RAPL_START is only accessed in this function and only from a single thread
     let rapl_registers = read_rapl_registers();
-    unsafe { RAPL_START = (timestamp_start, rapl_registers) };
+
+    GLOBAL_DASHMAP.insert(id, (timestamp_start, rapl_registers));
 }
 
 #[cfg(intel)]
