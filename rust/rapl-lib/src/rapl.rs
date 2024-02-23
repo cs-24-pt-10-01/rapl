@@ -46,7 +46,7 @@ static GLOBAL_DASHMAP: Lazy<DashMap<String, (u128, (u64, u64, u64, u64))>> =
     Lazy::new(|| DashMap::new());
 
 #[cfg(amd)]
-static WRITE_QUEUE: SegQueue<((u128, (u64, u64)), (u64, u64), u128)> = SegQueue::new();
+static WRITE_QUEUE: SegQueue<(String, (u128, (u64, u64)), (u64, u64), u128)> = SegQueue::new();
 
 #[cfg(intel)]
 static WRITE_QUEUE: SegQueue<((u128, (u64, u64, u64, u64)), (u64, u64, u64, u64), u128)> =
@@ -193,6 +193,7 @@ pub fn stop_rapl(id: String) {
 
     // Pass the start and end values to the write queue
     WRITE_QUEUE.push((
+        id,
         (start_values.0, (start_values.1 .0, start_values.1 .1)),
         (core_end, pkg_end),
         timestamp_end,
