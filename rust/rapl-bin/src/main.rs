@@ -2,8 +2,6 @@ use anyhow::Result;
 use rapl_lib::ffi::{start_rapl, stop_rapl};
 use std::ffi::CString;
 
-pub const CONFIG: bincode::config::Configuration = bincode::config::standard();
-
 fn main() -> Result<()> {
     let test_function = CString::new("TestFunction").expect("CString::new failed");
     // Call start and stop rapl 500 times
