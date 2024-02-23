@@ -53,7 +53,8 @@ static WRITE_QUEUE: SegQueue<((u128, (u64, u64, u64, u64)), (u64, u64, u64, u64)
     SegQueue::new();
 
 #[cfg(amd)]
-static CSV_COLUMNS: [&str; 6] = [
+static CSV_COLUMNS: [&str; 7] = [
+    "Id",
     "TimeStart",
     "TimeEnd",
     "CoreStart",

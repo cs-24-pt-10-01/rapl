@@ -11,7 +11,7 @@ fn main() -> Result<()> {
     // Get current time in milliseconds
     let start = std::time::Instant::now();
 
-    for _ in 0..500 {
+    for _ in 0..10000 {
         unsafe { start_rapl(test_function.as_ptr()) };
         unsafe { stop_rapl(test_function.as_ptr()) };
     }
@@ -19,6 +19,9 @@ fn main() -> Result<()> {
     let end = start.elapsed().as_millis();
 
     println!("Time elapsed: {}ms", end);
+
+    // Sleep for 5 seconds to allow writing to CSV
+    std::thread::sleep(std::time::Duration::from_secs(5));
 
     Ok(())
 }
