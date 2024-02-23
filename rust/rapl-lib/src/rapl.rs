@@ -49,8 +49,12 @@ static GLOBAL_DASHMAP: Lazy<DashMap<String, (u128, (u64, u64, u64, u64))>> =
 static WRITE_QUEUE: SegQueue<(String, (u128, (u64, u64)), (u64, u64), u128)> = SegQueue::new();
 
 #[cfg(intel)]
-static WRITE_QUEUE: SegQueue<((u128, (u64, u64, u64, u64)), (u64, u64, u64, u64), u128)> =
-    SegQueue::new();
+static WRITE_QUEUE: SegQueue<(
+    String,
+    (u128, (u64, u64, u64, u64)),
+    (u64, u64, u64, u64),
+    u128,
+)> = SegQueue::new();
 
 #[cfg(amd)]
 static CSV_COLUMNS: [&str; 7] = [
@@ -65,6 +69,7 @@ static CSV_COLUMNS: [&str; 7] = [
 
 #[cfg(intel)]
 static CSV_COLUMNS: [&str; 11] = [
+    "Id",
     "TimeStart",
     "TimeEnd",
     "PP0Start",
@@ -94,25 +99,7 @@ pub fn start_rapl(id: String) {
 
         // Start background thread to write to CSV
         std::thread::spawn(|| {
-            let file = OpenOptions::new()
-                .append(true)
-                .create(true)
-                .open(format!(
-                    "{}_{}.csv",
-                    get_cpu_type(),
-                    RAPL_POWER_UNITS
-                        .get()
-                        .expect("failed to get RAPL power units")
-                ))
-                .unwrap();
-
-            // Create the CSV writer
-            let mut wtr = WriterBuilder::new().from_writer(file);
-
-            // Write the column names
-            wtr.write_record(CSV_COLUMNS).unwrap();
-
-            csv_write_stuff(wtr);
+            create_csv_writer_thread();
         });
     });
 
@@ -167,7 +154,25 @@ pub fn stop_rapl(id: String) {
 }
 
 #[cfg(amd)]
-fn csv_write_stuff(mut wtr: Writer<File>) {
+fn create_csv_writer_thread() {
+    let file = OpenOptions::new()
+        .append(true)
+        .create(true)
+        .open(format!(
+            "{}_{}.csv",
+            get_cpu_type(),
+            RAPL_POWER_UNITS
+                .get()
+                .expect("failed to get RAPL power units")
+        ))
+        .unwrap();
+
+    // Create the CSV writer
+    let mut wtr = WriterBuilder::new().from_writer(file);
+
+    // Write the column names
+    wtr.write_record(CSV_COLUMNS).unwrap();
+
     loop {
         while let Some(data) = WRITE_QUEUE.pop() {
             wtr.serialize(data).unwrap();
