@@ -39,7 +39,7 @@ static RAPL_INIT: Once = Once::new();
 static RAPL_POWER_UNITS: OnceCell<u64> = OnceCell::new();
 static mut CSV_WRITER: Option<Writer<File>> = None;
 
-pub fn start_rapl() {
+pub fn start_rapl(id: String) {
     // Run the OS specific start_rapl_impl function
     start_rapl_impl();
 
@@ -64,7 +64,7 @@ pub fn start_rapl() {
 }
 
 #[cfg(intel)]
-pub fn stop_rapl() {
+pub fn stop_rapl(id: String) {
     // Read the RAPL end values
     let (pp0_end, pp1_end, pkg_end, dram_end) = read_rapl_registers();
 
@@ -105,7 +105,7 @@ pub fn stop_rapl() {
 }
 
 #[cfg(amd)]
-pub fn stop_rapl() {
+pub fn stop_rapl(id: String) {
     // Read the RAPL end values
     let (core_end, pkg_end) = read_rapl_registers();
 
