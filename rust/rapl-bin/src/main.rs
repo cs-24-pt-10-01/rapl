@@ -5,13 +5,20 @@ use std::ffi::CString;
 pub const CONFIG: bincode::config::Configuration = bincode::config::standard();
 
 fn main() -> Result<()> {
-    let start = CString::new("start").expect("CString::new failed");
-    let stop = CString::new("stop").expect("CString::new failed");
+    let test_function = CString::new("TestFunction").expect("CString::new failed");
     // Call start and stop rapl 500 times
+
+    // Get current time in milliseconds
+    let start = std::time::Instant::now();
+
     for _ in 0..500 {
-        unsafe { start_rapl(start.as_ptr()) };
-        unsafe { stop_rapl(stop.as_ptr()) };
+        unsafe { start_rapl(test_function.as_ptr()) };
+        unsafe { stop_rapl(test_function.as_ptr()) };
     }
+
+    let end = start.elapsed().as_millis();
+
+    println!("Time elapsed: {}ms", end);
 
     Ok(())
 }
