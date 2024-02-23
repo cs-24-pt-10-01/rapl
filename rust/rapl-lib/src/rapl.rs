@@ -1,10 +1,9 @@
 use crossbeam::queue::SegQueue;
-use csv::{Writer, WriterBuilder};
+use csv::WriterBuilder;
 use dashmap::DashMap;
 use once_cell::sync::{Lazy, OnceCell};
-use serde::Serialize;
 use std::{
-    fs::{File, OpenOptions},
+    fs::OpenOptions,
     sync::Once,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -36,7 +35,6 @@ static mut RAPL_START: (u128, (u64, u64, u64, u64)) = (0, (0, 0, 0, 0));
 
 static RAPL_INIT: Once = Once::new();
 static RAPL_POWER_UNITS: OnceCell<u64> = OnceCell::new();
-static mut CSV_WRITER: Option<Writer<File>> = None;
 
 #[cfg(amd)]
 static GLOBAL_DASHMAP: Lazy<DashMap<String, (u128, (u64, u64))>> = Lazy::new(|| DashMap::new());
